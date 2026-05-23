@@ -4,10 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Traccia 1: Analizzatore di Recensioni AI</title>
-    
-    <!-- Cambiato il fornitore della libreria: ora usiamo cdnjs, molto più stabile e raramente bloccato -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/transformers/2.17.2/transformers.min.js"></script>
-    
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f9f9f9; padding: 20px; color: #333; }
         .container { max-width: 700px; margin: 30px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
@@ -32,10 +28,10 @@
     <div class="container">
         <h1>Traccia 1: Analizzatore di Recensioni AI</h1>
         
-        <div id="status">Avvio del sistema in corso...</div>
+        <div id="status">Connessione ai server dell'IA...</div>
 
         <label for="inputText">Scrivi qui la tua recensione:</label>
-        <textarea id="inputText" placeholder="Scrivi una frase... (Es: Questo programma è fantastico!)"></textarea>
+        <textarea id="inputText" placeholder="Scrivi una frase in italiano... (Es: Questo programma è fantastico!)"></textarea>
 
         <div class="btn-group">
             <button id="btnAnalizza" disabled>Analizza</button>
@@ -50,9 +46,9 @@
                 <thead>
                     <tr>
                         <th>Testo Recensione</th>
-                        <th>Etichetta</th>
+                        <th>Etichetta original</th>
                         <th>Confidenza</th>
-                        <th>Messaggio</th>
+                        <th>Esito</th>
                     </tr>
                 </thead>
                 <tbody id="corpoTabella"></tbody>
@@ -60,7 +56,9 @@
         </div>
     </div>
 
-    <script>
+    <script type="module">
+        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
+
         const inputText = document.getElementById("inputText");
         const btnAnalizza = document.getElementById("btnAnalizza");
         const statusDiv = document.getElementById("status");
@@ -72,23 +70,11 @@
         let classifier;
 
         async function caricaModello() {
-            // Controlliamo sotto quale nome il browser ha registrato la libreria (v2 può usare 'transformers' o 'Xenova')
-            const t = window.transformers || window.Xenova;
-            
-            if (!t) {
-                statusDiv.style.background = "#fce4d6";
-                statusDiv.innerHTML = "<span style='color: #c00000;'><strong>Errore critico:</strong> Il browser blocca il caricamento della libreria. Prova a disattivare AdBlock o ad aprire il file con un altro browser (es. Edge o Firefox).</span>";
-                return;
-            }
-
-            // Forza la libreria a scaricare i modelli da internet senza cercare cartelle locali
-            t.env.allowLocalModels = false;
-
             try {
-                statusDiv.innerText = "Libreria agganciata! Connessione a Hugging Face in corso... Attendi...";
+                statusDiv.innerText = "Download del modello AI avviato... Attendi il 100%...";
                 
-                // Avviamo la pipeline
-                classifier = await t.pipeline("sentiment-analysis", "Xenova/distilbert-base-multilingual-cased-sentiment-2bi", {
+                // Carichiamo il modello multilingua leggero ottimizzato per v3
+                classifier = await pipeline("sentiment-analysis", "Xenova/distilbert-base-multilingual-cased-sentiment-2bi", {
                     progress_callback: (data) => {
                         if (data.status === 'progress') {
                             statusDiv.innerText = `Scaricamento: ${data.progress.toFixed(0)}% del file ${data.file}`;
@@ -98,11 +84,12 @@
                     }
                 });
 
-                statusDiv.innerText = "Modello caricato con successo! Ora l'applicazione è pronta.";
+                statusDiv.innerText = "Modello pronto! Inserisci un testo e clicca 'Analizza'.";
                 btnAnalizza.disabled = false;
                 btnPredefinite.disabled = false;
             } catch (errore) {
-                statusDiv.innerText = "Errore nel caricamento dei file AI: " + errore.message;
+                statusDiv.style.background = "#fce4d6";
+                statusDiv.innerHTML = "<span style='color: #c00000;'><strong>Errore di caricamento:</strong> " + errore.message + "</span>";
                 console.error(errore);
             }
         }
@@ -113,11 +100,11 @@
             if (testo === "") {
                 resultDiv.style.display = "block";
                 resultDiv.style.borderLeft = "5px solid #e74c3c";
-                resultDiv.innerHTML = "<span style='color: #e74c3c;'><strong>Errore:</strong> La casella è vuota! Scrivi del testo prima.</span>";
+                resultDiv.innerHTML = "<span style='color: #e74c3c;'><strong>Errore:</strong> La casella è vuota! Scrivi qualcosa.</span>";
                 return;
             }
 
-            statusDiv.innerText = "L'IA sta elaborando la frase...";
+            statusDiv.innerText = "L'IA sta pensando...";
             btnAnalizza.disabled = true;
 
             try {
@@ -128,25 +115,26 @@
                 let messaggioPersonalizzato = "";
                 let coloreBordo = "";
 
-                if (risultato.label.toLowerCase().includes("posit") || risultato.label === "LABEL_1") {
-                    messaggioPersonalizzato = "Recensione positiva";
-                    coloreBordo = "#2ecc71";
+                // Gestione etichette del modello multilingua (LABEL_1 = positivo, LABEL_0 = negativo)
+                if (risultato.label === "LABEL_1" || risultato.label.toLowerCase().includes("pos")) {
+                    messaggioPersonalizzato = "Recensione Positiva";
+                    coloreBordo = "#2ecc71"; // Verde
                 } else {
-                    messaggioPersonalizzato = "Recensione negativa";
-                    coloreBordo = "#e74c3c";
+                    messaggioPersonalizzato = "Recensione Negativa";
+                    coloreBordo = "#e74c3c"; // Rosso
                 }
 
                 resultDiv.style.display = "block";
                 resultDiv.style.borderLeft = `5px solid ${coloreBordo}`;
                 resultDiv.innerHTML = `
-                    <strong>Etichetta originale:</strong> ${risultato.label}<br>
-                    <strong>Percentuale di confidenza:</strong> ${confidenza}%<br>
-                    <strong>Esito finale:</strong> <span style="color: ${coloreBordo}; font-weight: bold;">${messaggioPersonalizzato}</span>
+                    <strong>Risultato del Modello (ID):</strong> ${risultato.label}<br>
+                    <strong>Grado di Confidenza:</strong> ${confidenza}%<br>
+                    <strong>Esito:</strong> <span style="color: ${coloreBordo}; font-weight: bold;">${messaggioPersonalizzato}</span>
                 `;
                 
                 statusDiv.innerText = "Analisi completata.";
             } catch (errore) {
-                statusDiv.innerText = "Errore durante l'elaborazione.";
+                statusDiv.innerText = "Errore durante l'analisi del testo.";
                 console.error(errore);
             } finally {
                 btnAnalizza.disabled = false;
@@ -169,7 +157,7 @@
                     const output = await classifier(testo);
                     const ris = output[0];
                     const conf = (ris.score * 100).toFixed(2);
-                    let esito = ris.label.toLowerCase().includes("posit") || ris.label === "LABEL_1" ? "Positiva" : "Negativa";
+                    let esito = ris.label === "LABEL_1" || ris.label.toLowerCase().includes("pos") ? "Positiva" : "Negativa";
 
                     const riga = document.createElement("tr");
                     riga.innerHTML = `
@@ -186,6 +174,7 @@
             statusDiv.innerText = "Tabella completata!";
         }
 
+        // Avvio delle funzioni
         window.addEventListener('DOMContentLoaded', caricaModello);
         btnAnalizza.addEventListener("click", analizzaRecensione);
         btnPredefinite.addEventListener("click", analizzaPredefinite);
